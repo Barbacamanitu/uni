@@ -1,0 +1,93 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel VoxelFromHeightmap
+#pragma kernel VoxelToMesh
+
+struct Voxel
+{
+	int val;
+};
+
+
+Texture2D<float4> heightmap;
+RWStructuredBuffer<Voxel> voxelBuffer;
+RWStructuredBuffer<int> quadCountBuffer;
+AppendStructuredBuffer<float3> vertBuffer;
+AppendStructuredBuffer<int> triBuffer;
+float3 cameraPos;
+float3 cameraDir;
+int chunkSize;
+
+int nmod(int k, int n) { return ((k %= n) < 0) ? k + n : k; }
+
+int posToIndex(int3 pos)
+{
+	int x = nmod(pos.x, chunkSize);
+	int y = nmod(pos.y, chunkSize);
+	int z = nmod(pos.z, chunkSize);
+	return (x * chunkSize * chunkSize) + (y * chunkSize) + z;
+}
+
+int3 indexToPos(int i)
+{
+	int x = i / (chunkSize * chunkSize);
+	i -= (x * chunkSize * chunkSize);
+	int y = i / chunkSize;
+	i -= (y * chunkSize);
+	int z = i;
+	return int3(x, y, z);
+}
+
+[numthreads(4,4,4)]
+void VoxelFromHeightmap(uint3 id : SV_DispatchThreadID)
+{
+	float4 hCol = heightmap[id.xz];
+	float h = hCol.x;
+	int hY = (int)(h * 16.0f);
+	int index = posToIndex(id.xyz);
+	Voxel v = voxelBuffer[index];
+	if (id.y <= hY) {
+		
+		v.val = 1;
+	}
+	else {
+		v.val = 0;
+	}
+
+	voxelBuffer[index] = v;
+
+	
+	
+}
+
+
+bool shouldDrawVoxel(uint3 pos) {
+	int i = posToIndex(pos);
+	int u = posToIndex(pos + int3(0, 1, 0));
+	int d = posToIndex(pos + int3(0, -1, 0));
+	int l = posToIndex(pos + int3(-1, 0, 0));
+	int r = posToIndex(pos + int3(1, 1, 0));
+	int f = posToIndex(pos + int3(0, 0, -1));
+	int b = posToIndex(pos + int3(0, 0, 1));
+	int uu = voxelBuffer[u].val;
+	int dd = voxelBuffer[d].val;
+	int ll = voxelBuffer[l].val;
+	int rr = voxelBuffer[r].val;
+	int ff = voxelBuffer[f].val;
+	int bb = voxelBuffer[b].val;
+	int total = uu + dd + ll + rr + ff + bb;
+	int v = voxelBuffer[i].val;
+	return (v == 1 && total<6);
+}
+
+[numthreads(4, 4, 4)]
+void VoxelToMesh(uint3 id : SV_DispatchThreadID) {
+	
+
+	if (shouldDrawVoxel(id)) {
+		float3 pos = float3((float)id.x, (float)id.y, (float)id.z);
+		vertBuffer.Append(pos);
+	}
+	
+	
+}
+
